@@ -1,0 +1,166 @@
+import numpy as np
+import cv2
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+from sklearn.feature_extraction.image import extract_patches_2d
+from sklearn.decomposition import MiniBatchDictionaryLearning
+import pydicom
+import os
+
+# Load medical images
+#image = cv2.imread('medical_image.png', cv2.IMREAD_GRAYSCALE)
+
+# Load and preprocess DICOM images
+def load_dicom_images(folder_path):
+    images = []
+    for filename in os.listdir(folder_path):
+        if filename.endswith(".dcm"):
+            ds = pydicom.dcmread(os.path.join(folder_path, filename))
+            image = ds.pixel_array  # Get pixel data
+            image = image / 255.0  # Normalize to [0, 1]
+            images.append(image)
+    return np.array(images)
+
+# Example folder containing DICOM images
+dicom_folder = 'path_to_dicom_folder'
+noisy_images = load_dicom_images(dicom_folder)
+x_train = load_dicom_images(os.path.join(dicom_folder, 'train'))
+x_val = load_dicom_images(os.path.join(dicom_folder, 'validation'))
+
+# Load and preprocess medical images (adjust as needed)
+def preprocess_image(image):
+    # Perform preprocessing (e.g., resizing and normalization)
+    image = cv2.resize(image, (desired_width, desired_height))
+    image = image / 255.0  # Normalize to [0, 1]
+    return image
+
+# Load your medical image data
+x_train, y_train, x_val, y_val = load_and_preprocess_data()
+
+# Define patch size and extract patches
+patch_size = (8, 8)
+patches = extract_patches_2d(image, patch_size)
+
+# Preprocess patches
+patches = patches.reshape(patches.shape[0], -1)
+patches -= np.mean(patches, axis=0)
+patches /= np.std(patches, axis=0)
+
+# Dictionary learning
+n_atoms = 100  # Number of atoms in the dictionary
+n_iter = 1000  # Number of iterations
+
+dl = MiniBatchDictionaryLearning(n_atoms=n_atoms, n_iter=n_iter)
+dictionary = dl.fit(patches).components_
+
+# Denoise patches using the learned dictionary (adapt for Poisson noise)
+denoised_patches = np.dot(patches, dictionary.T)
+
+# Reconstruct the denoised images from the denoised patches
+denoised_images = np.zeros_like(noisy_images)
+index = 0
+for i, image in enumerate(noisy_images):
+    for j in range(image_patches.shape[0]):
+        denoised_images[i] += denoised_patches[index].reshape(patch_size)
+        index += 1
+
+# Transform an example patch using the learned dictionary
+example_patch = patches[0]
+representation = dl.transform([example_patch])
+
+# Reconstruct the patch using the dictionary
+reconstructed_patch = np.dot(representation, dictionary)
+
+# Save denoised images (adjust paths as needed)
+output_folder = 'path_to_output_folder'
+for i, image in enumerate(denoised_images):
+    cv2.imwrite(os.path.join(output_folder, f'denoised_image_{i}.png'), image)
+
+# Visualize dictionary atoms
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(12, 6))
+for i in range(n_atoms):
+    plt.subplot(10, 10, i + 1)
+    plt.imshow(dictionary[i].reshape(patch_size), cmap='gray')
+    plt.axis('off')
+plt.show()
+
+#Define Residual Block:
+
+def residual_block(x, filters, kernel_size=3, stride=1, activation='relu'):
+    shortcut = x
+    
+    x = layers.Conv2D(filters, kernel_size, strides=stride, padding='same')(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Activation(activation)(x)
+    
+    x = layers.Conv2D(filters, kernel_size, strides=stride, padding='same')(x)
+    x = layers.BatchNormalization()(x)
+    
+    x = layers.add([x, shortcut])
+    x = layers.Activation(activation)(x)
+    
+    return x
+
+#Build Residual Network:
+#Construct the residual network by stacking multiple residual blocks.
+
+def build_residual_network(input_shape, num_blocks, num_filters, num_classes):
+    inputs = keras.Input(shape=input_shape)
+    x = inputs
+
+    # Initial convolutional layer
+    x = layers.Conv2D(num_filters, 3, strides=1, padding='same')(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Activation('relu')(x)
+
+    # Stack residual blocks
+    for _ in range(num_blocks):
+        x = residual_block(x, num_filters)
+
+    # Global average pooling
+    x = layers.GlobalAveragePooling2D()(x)
+
+    # Fully connected layer for classification
+    outputs = layers.Dense(num_classes, activation='softmax')(x)
+
+    model = keras.Model(inputs, outputs)
+    return model
+
+# Example parameters
+input_shape = (128, 128, 3)
+num_blocks = 4
+num_filters = 64
+num_classes = 2
+
+# Build the model
+model = build_residual_network(input_shape, num_blocks, num_filters, num_classes)
+#Compile and Train the Model:
+#Compile the model with the appropriate loss function, optimizer, and metrics, and then train it on your dataset.
+
+model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+# Train the model
+
+model.fit(x_train, y_train, validation_data=(x_val, y_val), epochs=epochs, batch_size=batch_size)
+
+#Evaluate the Model:
+#After training, evaluate the model on your test dataset.
+
+test_loss, test_accuracy = model.evaluate(x_test, y_test)
+print(f'Test loss: {test_loss}, Test accuracy: {test_accuracy}')
+
+#Save and Load the Model:
+#Save the trained model for future use and load it when needed.
+
+model.save('medical_image_residual_model.h5')
+
+# Load the model
+loaded_model = keras.models.load_model('medical_image_residual_model.h5')
+Make Predictions:
+Use the loaded model to make predictions on new medical images.
+python
+Copy code
+predictions = loaded_model.predict(new_images)
