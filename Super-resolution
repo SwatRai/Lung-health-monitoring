@@ -1,0 +1,116 @@
+#Subnetwork2: Super-resolution
+
+import os
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.layers import Input, Conv2D, BatchNormalization, Activation, Add, UpSampling2D, Dense, Flatten
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.losses import MeanSquaredError, BinaryCrossentropy
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+
+# Define the generator network
+def build_generator():
+    input_layer = Input(shape=(low_res_height, low_res_width, channels))
+    
+    # Initial convolutional layer
+    x = Conv2D(64, kernel_size=9, padding='same')(input_layer)
+    x = Activation('relu')(x)
+    
+    # Residual blocks
+    for _ in range(16):
+        x = residual_block(x)
+    
+    # Upsampling
+    x = Conv2D(64, kernel_size=3, padding='same')(x)
+    x = UpSampling2D(size=(2, 2))(x)
+    x = Activation('relu')(x)
+    
+    # Final convolutional layer
+    x = Conv2D(channels, kernel_size=9, padding='same')(x)
+    output_layer = Activation('tanh')(x)
+    
+    return Model(inputs=input_layer, outputs=output_layer)
+
+# Define a residual block
+def residual_block(x):
+    y = Conv2D(64, kernel_size=3, padding='same')(x)
+    y = BatchNormalization()(y)
+    y = Activation('relu')(y)
+    
+    y = Conv2D(64, kernel_size=3, padding='same')(y)
+    y = BatchNormalization()(y)
+    
+    out = Add()([x, y])
+    return out
+
+# Define the discriminator network
+def build_discriminator():
+    input_layer = Input(shape=(high_res_height, high_res_width, channels))
+    
+    x = Conv2D(64, kernel_size=3, padding='same')(input_layer)
+    x = Activation('relu')(x)
+    
+    x = Conv2D(64, kernel_size=3, padding='same', strides=2)(x)
+    x = Activation('relu')(x)
+    
+    x = Conv2D(128, kernel_size=3, padding='same')(x)
+    x = Activation('relu')(x)
+    
+    x = Conv2D(128, kernel_size=3, padding='same', strides=2)(x)
+    x = Activation('relu')(x)
+    
+    x = Flatten()(x)
+    x = Dense(1024)(x)
+    x = Activation('relu')(x)
+    output_layer = Dense(1, activation='sigmoid')(x)
+    
+    return Model(inputs=input_layer, outputs=output_layer)
+
+# Define loss functions
+mse_loss = MeanSquaredError()
+bce_loss = BinaryCrossentropy()
+
+# Build and compile the generator and discriminator
+generator = build_generator()
+discriminator = build_discriminator()
+
+generator.compile(optimizer=Adam(learning_rate=0.0002), loss=mse_loss)
+discriminator.compile(optimizer=Adam(learning_rate=0.0002), loss=bce_loss, metrics=['accuracy'])
+
+# Define a combined model (GAN)
+discriminator.trainable = False
+gan_input = Input(shape=(low_res_height, low_res_width, channels))
+gan_output = discriminator(generator(gan_input))
+gan = Model(inputs=gan_input, outputs=gan_output)
+
+gan.compile(optimizer=Adam(learning_rate=0.0002), loss=bce_loss, metrics=['accuracy'])
+
+# Create data generators for training (adjust batch_size, etc.)
+data_gen = ImageDataGenerator(rescale=1.0 / 255.0)
+low_res_data_gen = data_gen.flow(low_res_images, batch_size=batch_size)
+high_res_data_gen = data_gen.flow(high_res_images, batch_size=batch_size)
+
+# Train the GAN (sample code - adjust for your data)
+for epoch in range(epochs):
+    for i in range(len(low_res_images) // batch_size):
+        low_res_batch = low_res_data_gen.next()
+        high_res_batch = high_res_data_gen.next()
+        
+        generated_images = generator.predict(low_res_batch)
+        
+        real_labels = np.ones((batch_size, 1))
+        fake_labels = np.zeros((batch_size, 1))
+        
+        # Train the discriminator
+        d_loss_real = discriminator.train_on_batch(high_res_batch, real_labels)
+        d_loss_fake = discriminator.train_on_batch(generated_images, fake_labels)
+        d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
+        
+        # Train the generator
+        g_loss = gan.train_on_batch(low_res_batch, real_labels)
+        
+        print(f"Epoch {epoch+1}, Batch {i+1}/{len(low_res_images)//batch_size}, D Loss: {d_loss[0]}, G Loss: {g_loss[0]}")
+
+# Generate super-resolution images (sample code)
+super_res_images = generator.predict(low_res_images)
